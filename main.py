@@ -1,45 +1,81 @@
-import os
-from dotenv import load_dotenv
-from langchain.chat_models import ChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langgraph.graph import Graph
-from langgraph.prebuilt.tool_executor import ToolExecutor
-from task_document_parse import task_document_parse
-from task_document_fill import task_document_fill
+from enum import Enum, auto
+from typing import Dict, List, Callable, TypedDict, Annotated
+import operator
 from task_upload import task_upload
-from task_generate_ui import task_generate_ui
+from task_document_parse import task_document_parse
+from task_identify_empty_fields import task_identify_empty_fields
 from task_get_context_memory import task_get_context_memory
-from task_identity_empty_fields import task_identify_empty_fields
+from task_document_fill import task_document_fill
+from task_generate_ui import task_generate_ui
+from flow_mind_state import FlowMindContext, FlowMindState
 
+class StateGraph:
+    def __init__(self):
+        self.states: Dict[FlowMindState, List[FlowMindState]] = {state: [] for state in FlowMindState}
+        self.actions: Dict[FlowMindState, Callable[[FlowMindContext], FlowMindContext]] = {}
+        self.context: FlowMindContext = FlowMindContext(
+            uploaded_file="",
+            parsed_text="",
+            empty_fields=[],
+            filled_fields={},
+            ui_html="",
+            all_actions=[]
+        )
 
-# Load environment variables
-load_dotenv()
+    def add_transition(self, from_state: FlowMindState, to_state: FlowMindState):
+        self.states[from_state].append(to_state)
 
-# Initialize OpenAI API
-llm = ChatOpenAI(model="gpt-4")
+    def add_action(self, state: FlowMindState, action: Callable[[FlowMindContext], FlowMindContext]):
+        self.actions[state] = action
 
-# Create the workflow graph
-workflow = Graph()
+    def get_next_states(self, state: FlowMindState) -> List[FlowMindState]:
+        return self.states[state]
 
-# Add nodes to the graph
-workflow.add_node("upload", task_upload)
-workflow.add_node("parse", task_document_parse)
-workflow.add_node("identify_fields", task_identify_empty_fields)
-workflow.add_node("get_context", task_get_context_memory)
-workflow.add_node("fill_document", task_document_fill)
-workflow.add_node("generate_ui", task_generate_ui)
+    def execute_action(self, state: FlowMindState) -> None:
+        if state in self.actions:
+            new_context = self.actions[state](self.context)
+            self.context.update(new_context)
 
-# Define edges (connections between nodes)
-workflow.add_edge("upload", "parse")
-workflow.add_edge("parse", "identify_fields")
-workflow.add_edge("identify_fields", "get_context")
-workflow.add_edge("get_context", "fill_document")
-workflow.add_edge("fill_document", "generate_ui")
+class WorkflowManager:
+    def __init__(self, state_graph: StateGraph):
+        self.state_graph = state_graph
+        self.current_state = FlowMindState.TaskUpload
 
-# Compile the graph
-app = workflow.compile()
+    def run(self):
+        while self.current_state != FlowMindState.End:
+            print(f"Executing state: {self.current_state.name}")
+            self.state_graph.execute_action(self.current_state)
+            next_states = self.state_graph.get_next_states(self.current_state)
+            if next_states:
+                self.current_state = next_states[0]  # For simplicity, we're just taking the first next state
+            else:
+                self.current_state = FlowMindState.End
+        print("Workflow completed.")
+        print("All actions:", self.state_graph.context["all_actions"])
 
-# Run the workflow
-initial_state = {}  # Define initial state
-for output in app.stream(initial_state):
-    print(output)
+# Example usage
+def main():
+    graph = StateGraph()
+
+    # Define transitions
+    graph.add_transition(FlowMindState.TaskUpload, FlowMindState.TaskDocumentParse)
+    graph.add_transition(FlowMindState.TaskDocumentParse, FlowMindState.TaskIdentifyEmptyFields)
+    graph.add_transition(FlowMindState.TaskIdentifyEmptyFields, FlowMindState.TaskGetContext_Memory)
+    graph.add_transition(FlowMindState.TaskGetContext_Memory, FlowMindState.TaskDocumentFill)
+    graph.add_transition(FlowMindState.TaskDocumentFill, FlowMindState.TaskGenerateUI)
+    graph.add_transition(FlowMindState.TaskGenerateUI, FlowMindState.End)
+
+    # Define actions
+    graph.add_action(FlowMindState.TaskUpload, task_upload)
+    graph.add_action(FlowMindState.TaskDocumentParse, task_document_parse)
+    graph.add_action(FlowMindState.TaskIdentifyEmptyFields, task_identify_empty_fields)
+    graph.add_action(FlowMindState.TaskGetContext_Memory, task_get_context_memory)
+    graph.add_action(FlowMindState.TaskDocumentFill, task_document_fill)
+    graph.add_action(FlowMindState.TaskGenerateUI, task_generate_ui)
+
+    # Run the workflow
+    workflow = WorkflowManager(graph)
+    workflow.run()
+
+if __name__ == "__main__":
+    main()

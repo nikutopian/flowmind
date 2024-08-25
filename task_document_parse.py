@@ -1,29 +1,26 @@
-import pytesseract
-from PIL import Image
 from pathlib import Path
+from flow_mind_state import FlowMindContext
+from file_parser import FileParser
 
-def task_document_parse(state):
-    file_path = state.get("file_path")
+
+def task_document_parse(context: FlowMindContext) -> FlowMindContext:
+    file_path = context["uploaded_file"]
     if not file_path:
-        return {"error": "No file path provided"}
-    
+        context["all_actions"] = context["all_actions"] + [
+            "Error: No file path provided"
+        ]
+        return context
+
     file_extension = Path(file_path).suffix.lower()
-    
-    if file_extension in ['.png', '.jpg', '.jpeg']:
-        # For images, use OCR
-        try:
-            image = Image.open(file_path)
-            text = pytesseract.image_to_string(image)
-            return {"parsed_text": text}
-        except Exception as e:
-            return {"error": f"Error parsing image: {str(e)}"}
-    elif file_extension == '.pdf':
-        # For PDFs, you might want to use a library like PyPDF2 or pdfminer
-        # This is a placeholder for PDF parsing
-        return {"error": "PDF parsing not implemented yet"}
-    elif file_extension == '.docx':
-        # For Word documents, you might want to use a library like python-docx
-        # This is a placeholder for DOCX parsing
-        return {"error": "DOCX parsing not implemented yet"}
+
+    if file_extension in [".png", ".jpg", ".jpeg", ".pdf", ".docx"]:
+        fp = FileParser()
+
+        parsed_text = fp.parse_file(file_path)
+        context["parsed_text"] = parsed_text
+        return context
     else:
-        return {"error": f"Unsupported file type: {file_extension}"}
+        context["all_actions"] = context["all_actions"] + [
+            f"Error: Unsupported file type: {file_extension}"
+        ]
+        return context

@@ -1,0 +1,13 @@
+{
+    "name": "John Doe",
+    "phone_number": "+1 (555) 123-4567",
+    "email": "john.doe@example.com",
+    "spouse_name": "Jane Doe",
+    "address": {
+        "street": "123 Main St",
+        "city": "Anytown",
+        "state": "CA",
+        "zip_code": "12345",
+        "country": "USA"
+    }
+}
